@@ -1,0 +1,80 @@
+IF NOT EXISTS(SELECT 1 FROM master.sys.tables WHERE object_id = OBJECT_ID('DDLChangeLog'))
+BEGIN
+CREATE TABLE master.dbo.DDLChangeLog(
+	DBName Varchar(100),
+	InsertionDate datetime, 
+	CurrentUser varchar(100),
+	LoginName varchar(100),
+	Username varchar(100),
+	EventType varchar(50),
+	objectName varchar(100),
+	objectType varchar(100),
+	tsqlRunByUser varchar(max),
+	ClientIP varchar(30)
+	)
+END
+GO
+
+
+
+CREATE TRIGGER trgLogDDLEvent 
+ON DATABASE WITH ENCRYPTION
+AFTER DDL_DATABASE_LEVEL_EVENTS 
+AS 
+BEGIN
+SET NOCOUNT ON
+DECLARE @xml XML
+DECLARE @InsertionDate datetime, 
+@CurrentUser varchar(100),
+@LoginName varchar(100),
+@Username varchar(100),
+@EventType varchar(50),
+@objectName varchar(100),
+@objectType varchar(100),
+@tsqlRunByUser varchar(max),
+@ClientIP varchar(30)
+SET @xml=EVENTDATA()
+
+SELECT
+@InsertionDate = t.c.value('PostTime[01]', 'datetime'),
+@CurrentUser = cast(user_name() +' '+ host_name() AS varchar(100)),
+@LoginName = cast(suser_sname() AS varchar(50)),
+@Username = cast(original_login() AS varchar(100)),
+@EventType = t.c.value('EventType[01]', 'varchar(50)') ,
+@objectName = t.c.value('ObjectName[01]', 'varchar(100)') ,
+@objectType = t.c.value('ObjectType[01]', 'varchar(100)') ,
+@tsqlRunByUser = t.c.value('(TSQLCommand/CommandText)[01]', 'varchar(max)'),
+@ClientIP = CAST(CONNECTIONPROPERTY('client_net_address') AS VARCHAR(30))
+FROM @xml.nodes('/EVENT_INSTANCE') t(c)
+
+if @EventType <> 'CREATE_STATISTICS'
+BEGIN
+INSERT INTO master.dbo.DDLChangeLog 
+( 
+	DBName,
+	InsertionDate,
+	CurrentUser,
+	LoginName,
+	Username,
+    EventType, 
+    ObjectName, 
+    ObjectType, 
+    tsqlRunByUser,
+    ClientIP
+) 
+VALUES 
+(
+DB_NAME(),
+@InsertionDate,
+@CurrentUser,
+@LoginName,
+@Username,
+@EventType,
+@objectName,
+@objectType,
+@tsqlRunByUser,
+@ClientIP 
+);
+end
+PRINT 'Command completed successfully!'
+END
